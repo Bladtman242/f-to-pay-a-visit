@@ -173,6 +173,9 @@ const generateIdxes = (count, letters) => {
   return names
 }
 
+const euclideanDistance = (p1, p2) =>
+  Math.sqrt(Math.abs(p1[0] - p2[0])**2 + Math.abs(p1[1] - p2[1]**2))
+
 const nameTags = (tags) => {
   const letters = [
     "A", "S", "D", "F", "G",
@@ -183,8 +186,8 @@ const nameTags = (tags) => {
   tags.sort((t1,t2) => {
     const t1Rect = t1.target.getBoundingClientRect();
     const t2Rect = t2.target.getBoundingClientRect();
-    t1DistanceToCenter = Math.sqrt(Math.abs(t1Rect.left - center[0])**2 * Math.abs(t1Rect.top = center[1])**2);
-    t2DistanceToCenter = Math.sqrt(Math.abs(t2Rect.left - center[0])**2 * Math.abs(t2Rect.top = center[1])**2);
+    t1DistanceToCenter = euclideanDistance([t1Rect.left, t1Rect.top], center);
+    t2DistanceToCenter = euclideanDistance([t2Rect.left, t2Rect.top], center);
     return t1DistanceToCenter - t2DistanceToCenter;
   });
   const count = tags.length;
