@@ -1,22 +1,3 @@
-const watchMap = {
-  empty: () => ({}),
-  add: (watchMap, k) => {
-    watchMap[k] = Date.now();
-  },
-  delete: (watchMap, k) => {
-    val = watchMap[k];
-    delete watchMap[k];
-    return undefined !== val;
-  },
-  contains500ms: (watchMap, k) => {
-    const v = watchMap[k];
-    if (undefined === v) {
-      return false;
-    }
-    return v >= Date.now() - 500;
-  },
-};
-
 const DFA_ANY = {};
 const dfa = {
   ANY: DFA_ANY,
@@ -303,8 +284,6 @@ const eventIsRelevant = (e) => {
     && !isInputElement(e.target)
     && !isModKey(e);
 }
-
-const pressedKeys = watchMap.empty();
 
 stateMachine = dfa.empty();
 //states
