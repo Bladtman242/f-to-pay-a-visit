@@ -194,6 +194,7 @@ const nameTags = (tags) => {
 
 let tagsInDom = [];
 let filterString = "";
+let yank = false;
 
 const css =
 `.tag {
@@ -279,17 +280,11 @@ const isContentEditable = (element) => {
 const inputTagNames = new Set(['INPUT', 'TEXTAREA']);
 const isInputElement = (element) => inputTagNames.has(element.tagName) || isContentEditable(element);
 
-const eventIsRelevant = (e) => {
-  return !e.defaultPrevented
-    && !isInputElement(e.target)
-    && !isModKey(e);
-}
-
-stateMachine = dfa.empty();
 //states
+const YANK = "YANK";
 const INACTIVE = "INACTIVE";
-const ACTIVE = "ACTIVE";
-const ESCAPED = "ESCAPED";
+const ACTIVE = "ACTIVE"
+const ESCAPED = "ESCAPED"
 
 const stop = (e) => {
   e.event.stopImmediatePropagation();
@@ -297,19 +292,64 @@ const stop = (e) => {
   e.event.preventDefault();
 };
 
+const activate = (i) => {
+  if (hasModKey(i.event)) {
+    return INACTIVE;
+  } else {
+    stop(i);
+    display();
+  }
+};
+
+ const deActivate = (i) => {
+   stop(i);
+   clear();
+ };
+
+const unfocus = (i) => { document.activeElement.blur() };
+
 let timeoutId;
 
-dfa.addTransition(stateMachine, INACTIVE, ACTIVE, 'f', (i) => { if (!eventIsRelevant(i.event) || hasModKey(i.event)){ return INACTIVE} else { stop(i); clear(); display() } });
-dfa.addTransition(stateMachine, INACTIVE, INACTIVE, 'Escape', (i) => { document.activeElement.blur() });
-dfa.addTransition(stateMachine, INACTIVE, ESCAPED, ',', (i) => { timeoutId = setTimeout(() => {stop(i); dfa.setState(stateMachine, INACTIVE) }, 500) });
-dfa.addTransition(stateMachine, ESCAPED, INACTIVE, dfa.ANY, (i) => clearTimeout(timeoutId));
-dfa.addTransition(stateMachine, ACTIVE, ACTIVE, dfa.ANY, (i) => { stop(i); return filter(i.event) });
-dfa.addTransition(stateMachine, ACTIVE, INACTIVE, 'Escape', (i) => { stop(i); clear() });
+const delayTransition = (state) => (i) => {
+  stop(i);
+  timeoutId = setTimeout(() => {
+    dfa.setState(stateMachine, state)
+  }, 500);
+};
+
+const escaped = (i) => { clearTimeout(timeoutId) };
+
+const filterInput = (i) => {
+  stop(i);
+  return filter(i.event);
+};
+
+stateMachine = dfa.empty();
+
+dfa.addTransition(stateMachine, INACTIVE, YANK, 'y', delayTransition(INACTIVE));
+dfa.addTransition(stateMachine, INACTIVE, ACTIVE, 'f', activate);
+dfa.addTransition(stateMachine, INACTIVE, INACTIVE, 'Escape', unfocus);
+dfa.addTransition(stateMachine, INACTIVE, ESCAPED, ',', delayTransition(INACTIVE));
+
+dfa.addTransition(stateMachine, YANK, ESCAPED, ',', (i) => { escaped(i); delayTransition(INACTIVE)(i) });
+dfa.addTransition(stateMachine, YANK, ACTIVE, 'f', (i) => { escaped(i); yank = true; return activate(i) });
+dfa.addTransition(stateMachine, YANK, INACTIVE, dfa.ANY, escaped);
+
+dfa.addTransition(stateMachine, ESCAPED, INACTIVE, dfa.ANY, escaped);
+
+dfa.addTransition(stateMachine, ACTIVE, ACTIVE, dfa.ANY, filterInput);
+dfa.addTransition(stateMachine, ACTIVE, INACTIVE, 'Escape', deActivate);
 
 dfa.setState(stateMachine, INACTIVE);
 
+const eventIsRelevant = (e) => {
+  return !e.defaultPrevented
+    && !isInputElement(e.target)
+    && !isModKey(e);
+}
+
 const keypressHandler = (event) => {
-  if (isModKey(event)) {
+  if (!eventIsRelevant(event)) {
     return;
   }
   dfa.input(stateMachine, { event });
@@ -337,32 +377,43 @@ const clear = () => {
   tagsInDom.forEach(e => e.remove());
   tagsInDom = [];
   filterString = "";
+  yank=false;
 }
 
 const displayIsActive = () => tagsInDom.length !== 0
 
 const select = (tag, keyEvent) => {
   console.log('select', tag.target);
-  if(isInputElement(tag.target)) {
-    tag.target.focus();
-    tag.target.value = tag.target.value;
+
+  if (yank) {
+    console.log('we yankin\'');
+      console.log('COPYING', tag.target);
+    if (tag.target.tagName === 'A') {
+      console.log('COPYING', tag.target.href);
+      navigator.clipboard.writeText(tag.target.href);
+    }
+  } else {
+    if(isInputElement(tag.target)) {
+      tag.target.focus();
+      tag.target.value = tag.target.value;
+    }
+
+    const modifiers = {
+      shiftKey: keyEvent.shiftKey,
+      ctrlKey: keyEvent.ctrlKey,
+      altKey: keyEvent.altKey,
+      metaKey: keyEvent.metaKey,
+    };
+
+    const Event = (type) => new MouseEvent(type, {
+      bubbles: true,
+      view: window,
+      ... modifiers,
+    });
+
+    ['mouseover', 'mousedown', 'mouseup', 'click'].forEach((type) =>
+      tag.target.dispatchEvent(Event(type)));
   }
-
-  const modifiers = {
-    shiftKey: keyEvent.shiftKey,
-    ctrlKey: keyEvent.ctrlKey,
-    altKey: keyEvent.altKey,
-    metaKey: keyEvent.metaKey,
-  };
-
-  const Event = (type) => new MouseEvent(type, {
-    bubbles: true,
-    view: window,
-    ... modifiers,
-  });
-
-  ['mouseover', 'mousedown', 'mouseup', 'click'].forEach((type) =>
-    tag.target.dispatchEvent(Event(type)));
   clear();
 }
 
@@ -391,7 +442,9 @@ const filter = (keyEvent) => {
     select(matches[0], keyEvent);
     return INACTIVE;
   }
+
   rest.forEach((tag) => tag.style.display = "none");
+
   matches.forEach((tag) => {
     tag.innerHTML = `<span style="opacity: 0.4">${filterString}</span>${tag.tagData.name.slice(filterString.length)}`;
     tag.style.display = '';
