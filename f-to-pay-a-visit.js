@@ -1,6 +1,14 @@
-const DFA_ANY = {};
-const dfa = {
-  ANY: DFA_ANY,
+var DEBUG = false;
+
+const originalLog = console.log;
+
+console.log = (...args) =>
+    DEBUG
+    ? originalLog(...args)
+    : undefined
+
+const DFA = {
+  ANY: { val: 'DFA_ANY' },
   empty: () => {
     return {
       states: {},
@@ -8,11 +16,17 @@ const dfa = {
   },
   addTransition: (dfa, from, to, input, f) => {
     f ??= () => {};
+
     const type =
       typeof input === 'object'
-      ? input.type ?? DFA_ANY
-      : DFA_ANY
-    const value = typeof input === 'object' ? input.value ?? DFA_ANY : input;
+      ? input.type ?? DFA.ANY
+      : DFA.ANY
+
+    const value =
+      typeof input === 'object'
+      ? input.value ?? DFA.ANY
+      : input;
+
     const _from = dfa.states[from] || { transitionTypes: new Map() };
     const _to = dfa.states[to] || { transitionTypes: new Map() };
     const fts = _from.transitionTypes;
@@ -26,6 +40,7 @@ const dfa = {
   },
   setState: (dfa, state) => {
     dfa.state = state;
+    console.log('setState', state);
   },
   input: (dfa, input) => {
     if(undefined === dfa.state){
@@ -47,23 +62,30 @@ const dfa = {
     }
 
     const type = state.transitionTypes.get(input.type)
-              ?? state.transitionTypes.get(DFA_ANY);
+              ?? state.transitionTypes.get(DFA.ANY);
 
     if(undefined === type) {
       // types means no transition for this input, do nothing
-      return
+      return;
     }
 
-    const transition = type.get(input.value) ?? type.get(DFA_ANY);
+    const transition = type.get(input.value) ?? type.get(DFA.ANY);
 
     if(undefined === transition) {
       // no transition for this input, do nothing
       return;
     }
 
+    console.log('following transition', transition);
+
     const { to, f } = transition;
     const stateOverride = f(input);
-    dfa.state = stateOverride ?? to;
+
+    if(stateOverride !== undefined) {
+      console.log('using override', stateOverride);
+    }
+
+    DFA.setState(dfa, stateOverride ?? to);
   },
 }
 
@@ -348,7 +370,7 @@ let timeoutId;
 const delayTransition = (state) => (i) => {
   stop(i);
   timeoutId = setTimeout(() => {
-    dfa.setState(stateMachine, state)
+    DFA.setState(stateMachine, state)
   }, 500);
 };
 
@@ -359,32 +381,32 @@ const filterInput = (i) => {
   return filter(i.event);
 };
 
-stateMachine = dfa.empty();
+stateMachine = DFA.empty();
 
-dfa.addTransition(stateMachine, INACTIVE, YANK, 'y', delayTransition(INACTIVE));
-dfa.addTransition(stateMachine, INACTIVE, ACTIVE, 'f', activate);
-dfa.addTransition(stateMachine, INACTIVE, INACTIVE, 'Escape', unfocus);
-dfa.addTransition(stateMachine, INACTIVE, ESCAPED, ',', delayTransition(INACTIVE));
-dfa.addTransition(stateMachine, INACTIVE, DISABLED, { type: 'focusinput' });
+DFA.addTransition(stateMachine, INACTIVE, YANK, 'y', delayTransition(INACTIVE));
+DFA.addTransition(stateMachine, INACTIVE, ACTIVE, 'f', activate);
+DFA.addTransition(stateMachine, INACTIVE, INACTIVE, 'Escape', unfocus);
+DFA.addTransition(stateMachine, INACTIVE, ESCAPED, ',', delayTransition(INACTIVE));
+DFA.addTransition(stateMachine, INACTIVE, DISABLED, { type: 'focusinput' });
 
-dfa.addTransition(stateMachine, DISABLED, INACTIVE, { type: 'blur' });
-dfa.addTransition(stateMachine, DISABLED, INACTIVE, 'Escape', unfocus);
+DFA.addTransition(stateMachine, DISABLED, INACTIVE, { type: 'blur' });
+DFA.addTransition(stateMachine, DISABLED, INACTIVE, 'Escape', unfocus);
 
-dfa.addTransition(stateMachine, YANK, ESCAPED, ',', (i) => { escaped(i); delayTransition(INACTIVE)(i) });
-dfa.addTransition(stateMachine, YANK, ACTIVE, 'f', (i) => { escaped(i); yank = true; return activate(i) });
-dfa.addTransition(stateMachine, YANK, INACTIVE, dfa.ANY, escaped);
+DFA.addTransition(stateMachine, YANK, ESCAPED, ',', (i) => { escaped(i); delayTransition(INACTIVE)(i) });
+DFA.addTransition(stateMachine, YANK, ACTIVE, 'f', (i) => { escaped(i); yank = true; return activate(i) });
+DFA.addTransition(stateMachine, YANK, INACTIVE, DFA.ANY, escaped);
 
-dfa.addTransition(stateMachine, ESCAPED, INACTIVE, dfa.ANY, escaped);
+DFA.addTransition(stateMachine, ESCAPED, INACTIVE, DFA.ANY, escaped);
 
-dfa.addTransition(stateMachine, ACTIVE, ACTIVE, { type: 'key' }, filterInput);
-dfa.addTransition(stateMachine, ACTIVE, INACTIVE, { type: 'key', value: 'Escape' }, deActivate);
-dfa.addTransition(stateMachine, ACTIVE, DISABLED, { type: 'focusinput' }, deActivate);
+DFA.addTransition(stateMachine, ACTIVE, ACTIVE, { type: 'key' }, filterInput);
+DFA.addTransition(stateMachine, ACTIVE, INACTIVE, { type: 'key', value: 'Escape' }, deActivate);
+DFA.addTransition(stateMachine, ACTIVE, DISABLED, { type: 'focusinput' }, deActivate);
 
 const initialState = isInputElement(document.activeElement)
                      ? DISABLED
                      : INACTIVE;
 
-dfa.setState(stateMachine, initialState);
+DFA.setState(stateMachine, initialState);
 
 const inputOfEvent = (event) => {
   let type;
@@ -410,27 +432,27 @@ const eventHandler = (event) => {
   if (isModKeyEvent(event)) {
     return;
   }
-  dfa.input(stateMachine, inputOfEvent(event));
+  DFA.input(stateMachine, inputOfEvent(event));
 };
 
 const display = () => {
-  const orig = new Date();
-  let start = orig;
+  const start = new Date();
+  let before = start;
   const targets = getTargetableElements();
-  console.log(`found ${targets.length} targets in:`, new Date() - start);
-  start = new Date();
+  console.log(`found ${targets.length} targets in:`, new Date() - before);
+  before = new Date();
   const namedTags = nameTags(targets);
-  console.log(`named tags in`, new Date() - start);
-  start = new Date();
+  console.log(`named tags in`, new Date() - before);
+  before = new Date();
   const positionedTags = positionTags(namedTags);
-  console.log(`positioned tags in:`, new Date() - start);
-  start = new Date();
+  console.log(`positioned tags in:`, new Date() - before);
+  before = new Date();
   const tagElements = positionedTags.map(generateTagElement);
-  console.log(`created tag elements in:`, new Date() - start);
-  start = new Date();
+  console.log(`created tag elements in:`, new Date() - before);
+  before = new Date();
   displayTags(tagElements);
-  console.log(`added tag elements in:`, new Date() - start);
-  console.log(`in total:`, new Date() - orig);
+  console.log(`added tag elements in:`, new Date() - before);
+  console.log(`in total:`, new Date() - start);
 }
 
 const clear = () => {
