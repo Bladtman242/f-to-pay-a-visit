@@ -7,17 +7,25 @@ const dfa = {
     };
   },
   addTransition: (dfa, from, to, input, f) => {
-    const _from = dfa.states[from] || { transitions: {} };
-    const _to = dfa.states[to] || { transitions: {} };
+    f ??= () => {};
+    const type =
+      typeof input === 'object'
+      ? input.type ?? DFA_ANY
+      : DFA_ANY
+    const value = typeof input === 'object' ? input.value ?? DFA_ANY : input;
+    const _from = dfa.states[from] || { transitionTypes: new Map() };
+    const _to = dfa.states[to] || { transitionTypes: new Map() };
+    const fts = _from.transitionTypes;
 
-    _from.transitions[input] = {to, f};
+    const transitions = fts.has(type) ? fts.get(type) : new Map();
+    transitions.set(value, {to, f});
+    fts.set(type, transitions);
 
     dfa.states[from] = _from;
     dfa.states[to] = _to;
   },
   setState: (dfa, state) => {
     dfa.state = state;
-    console.log(state);
   },
   input: (dfa, input) => {
     if(undefined === dfa.state){
@@ -38,24 +46,24 @@ const dfa = {
       };
     }
 
-    let transition = state.transitions[input.event.key]
-    if(transition === undefined) {
-      transition = state.transitions[DFA_ANY];
-      if(undefined !== transition){
-        console.log('following the default transition');
-      }
+    const type = state.transitionTypes.get(input.type)
+              ?? state.transitionTypes.get(DFA_ANY);
+
+    if(undefined === type) {
+      // types means no transition for this input, do nothing
+      return
     }
+
+    const transition = type.get(input.value) ?? type.get(DFA_ANY);
 
     if(undefined === transition) {
       // no transition for this input, do nothing
-      console.log('no transition for input', {dfa, input});
       return;
     }
 
     const { to, f } = transition;
     const stateOverride = f(input);
     dfa.state = stateOverride ?? to;
-    console.log(dfa.state);
   },
 }
 
@@ -74,10 +82,12 @@ const getNAncestors = (e, n) => {
   }
 };
 
-const getTargetableElements = () => {
-  const isClickable =
-    (e) => e.matches('a, summary, button, input, textarea, *[role="button"], *[onclick], *[contenteditable]')
-        || window.getComputedStyle(e).cursor === 'pointer';
+const getTargetableElements = (document = window.document) => {
+  const isTargetable =
+    yank
+    ? (e) => e.matches('a[href]')
+    : (e) => e.matches('a, summary, button, input, textarea, iframe, *[role="button"], *[onclick], *[contenteditable]')
+             || window.getComputedStyle(e).cursor === 'pointer';
 
   const screenTop = 0
   const screenBottom = window.innerHeight;
@@ -89,8 +99,23 @@ const getTargetableElements = () => {
         && height >= 5;
   }
 
+  const isClickable = (e) => {
+    const bbox = e.getBoundingClientRect();
+    const x = bbox.left + bbox.width/2;
+    const y = bbox.top + bbox.height/2;
+    const elementFromPoint = document.elementFromPoint(x, y);
+    if (e === elementFromPoint) {
+      return true;
+    } else if (elementFromPoint === null) {
+      return false;
+    } else {
+      const ancestors = getNAncestors(elementFromPoint, 5);
+      return ancestors.some((ancestor) => ancestor.contains(e));
+    }
+  }
+
   const allElements = Array.from(document.getElementsByTagName('*'));
-  const relevantElements = allElements.filter((e) => isVisible(e) && isClickable(e));
+  const relevantElements = allElements.filter((e) => isVisible(e) && isTargetable(e) && isClickable(e));
 
   const elementSet = new Set();
   relevantElements.forEach((e) => {
@@ -108,50 +133,40 @@ const getTargetableElements = () => {
   return [...elementSet].map((e) => ({target: e}));
 }
 
-const zIndexOfElement = (e) => window.getComputedStyle(e).zIndex;
-
-const findZIndex = (e) => {
-  const zIndexOr0 = (e) => {
-    const zi = zIndexOfElement(e);
-    return zi !== 'auto' ? parseInt(zi) : 0;
-  };
-
-  const maxParent = (e) => {
-    const zi = zIndexOr0(e);
-    return e.parentElement ? Math.max(zi, maxParent(e.parentElement)) : zi;
-  };
-
-  const childrenZIndices = [...e.querySelectorAll('*')].map(zIndexOr0);
-  return Math.max(...childrenZIndices, maxParent(e));
-};
-
 const generateTagElement = (tag) => {
   const tagElement = document.createElement('div');
   tagElement.className = 'tag';
   tagElement.style.top = `${tag.top}px`;
   tagElement.style.right =`${tag.right}px`;
-  tagElement.style.zIndex = findZIndex(tag.target);
   tagElement.innerHTML = tag.name;
   tagElement.target = tag.target;
   tagElement.tagData = tag;
   return tagElement;
 }
 
+var widths=[];
+var rights=[];
+
+
 const positionTag = (element) => {
+  widths.push(document.body.clientWidth);
   const bbox = element.target.getBoundingClientRect();
   const top = bbox.top + window.scrollY;
-  const right = window.innerWidth - (bbox.right + window.scrollX);
+  const right = -(bbox.right + window.scrollX);
+  rights.push(right);
   return { top, right };
 }
 
 const positionTags = (elements) => {
-  return elements.map((e) => {
+  widths=[];
+  const posd = elements.map((e) => {
     const pos = positionTag(e);
     return {
       ...pos,
       ...e,
     }
   });
+  return posd;
 }
 
 const generateIdxes = (count, letters) => {
@@ -235,6 +250,14 @@ const css =
 
 // create shadow DOM
 const shadowHost = document.createElement('div');
+shadowHost.style.display = 'block';
+shadowHost.style.display = 'visible';
+shadowHost.style.position = 'absolute';
+shadowHost.style.width = '0px';
+shadowHost.style.top = '0px';
+shadowHost.style.left = '0px';
+shadowHost.style.zIndex = '2147483647';
+
 document.documentElement.appendChild(shadowHost);
 const shadowRoot = shadowHost.attachShadow({ mode: 'open' });
 
@@ -265,12 +288,14 @@ const hasModKey = (e) => {
     || e.metaKey;
 }
 
-const isModKey = (e) => {
-  return e.getModifierState(e.key);
+const isModKeyEvent = (e) => {
+  return !!e.getModifierState?.(e?.key);
 }
 
+const cantBeContentEditable = new Set([null, undefined, document, window]);
+
 const isContentEditable = (element) => {
-  if (element === null || element === undefined || element === document) {
+  if (cantBeContentEditable.has(element)) {
     return false;
   }
   const ceAttribute = element.getAttribute('contenteditable');
@@ -288,6 +313,7 @@ const YANK = "YANK";
 const INACTIVE = "INACTIVE";
 const ACTIVE = "ACTIVE"
 const ESCAPED = "ESCAPED"
+const DISABLED = "DISABLED"
 
 const stop = (e) => {
   e.event.stopImmediatePropagation();
@@ -309,7 +335,13 @@ const activate = (i) => {
    clear();
  };
 
-const unfocus = (i) => { document.activeElement.blur() };
+const unfocus = (i) => {
+  document.activeElement.blur();
+  if(document.activeElement.tagName === 'BODY') {
+    window.blur();
+    parent.focus();
+  }
+};
 
 let timeoutId;
 
@@ -333,6 +365,10 @@ dfa.addTransition(stateMachine, INACTIVE, YANK, 'y', delayTransition(INACTIVE));
 dfa.addTransition(stateMachine, INACTIVE, ACTIVE, 'f', activate);
 dfa.addTransition(stateMachine, INACTIVE, INACTIVE, 'Escape', unfocus);
 dfa.addTransition(stateMachine, INACTIVE, ESCAPED, ',', delayTransition(INACTIVE));
+dfa.addTransition(stateMachine, INACTIVE, DISABLED, { type: 'focusinput' });
+
+dfa.addTransition(stateMachine, DISABLED, INACTIVE, { type: 'blur' });
+dfa.addTransition(stateMachine, DISABLED, INACTIVE, 'Escape', unfocus);
 
 dfa.addTransition(stateMachine, YANK, ESCAPED, ',', (i) => { escaped(i); delayTransition(INACTIVE)(i) });
 dfa.addTransition(stateMachine, YANK, ACTIVE, 'f', (i) => { escaped(i); yank = true; return activate(i) });
@@ -340,26 +376,46 @@ dfa.addTransition(stateMachine, YANK, INACTIVE, dfa.ANY, escaped);
 
 dfa.addTransition(stateMachine, ESCAPED, INACTIVE, dfa.ANY, escaped);
 
-dfa.addTransition(stateMachine, ACTIVE, ACTIVE, dfa.ANY, filterInput);
-dfa.addTransition(stateMachine, ACTIVE, INACTIVE, 'Escape', deActivate);
+dfa.addTransition(stateMachine, ACTIVE, ACTIVE, { type: 'key' }, filterInput);
+dfa.addTransition(stateMachine, ACTIVE, INACTIVE, { type: 'key', value: 'Escape' }, deActivate);
+dfa.addTransition(stateMachine, ACTIVE, DISABLED, { type: 'focusinput' }, deActivate);
 
-dfa.setState(stateMachine, INACTIVE);
+const initialState = isInputElement(document.activeElement)
+                     ? DISABLED
+                     : INACTIVE;
 
-const eventIsRelevant = (e) => {
-  return !e.defaultPrevented
-    && !isInputElement(e.target)
-    && !isModKey(e);
+dfa.setState(stateMachine, initialState);
+
+const inputOfEvent = (event) => {
+  let type;
+  if (event.type === 'focus' && isInputElement(event.target)) {
+    type = 'focusinput';
+  } else if (event.type === 'blur') {
+    type = event.type;
+  } else if (event.type === 'keydown') {
+    type = 'key';
+  } else {
+    type = event.type;
+  }
+
+  let value;
+  if (type === 'key') {
+    value = event.key;
+  }
+
+  return { event, type, value };
 }
 
-const keypressHandler = (event) => {
-  if (!eventIsRelevant(event)) {
+const eventHandler = (event) => {
+  if (isModKeyEvent(event)) {
     return;
   }
-  dfa.input(stateMachine, { event });
+  dfa.input(stateMachine, inputOfEvent(event));
 };
 
 const display = () => {
-  let start = new Date();
+  const orig = new Date();
+  let start = orig;
   const targets = getTargetableElements();
   console.log(`found ${targets.length} targets in:`, new Date() - start);
   start = new Date();
@@ -374,6 +430,7 @@ const display = () => {
   start = new Date();
   displayTags(tagElements);
   console.log(`added tag elements in:`, new Date() - start);
+  console.log(`in total:`, new Date() - orig);
 }
 
 const clear = () => {
@@ -385,22 +442,14 @@ const clear = () => {
 
 const displayIsActive = () => tagsInDom.length !== 0
 
-const select = (tag, keyEvent) => {
-  console.log('select', tag.target);
+const queueOnEventLoop = (f) => setTimeout(f, 0);
 
+const select = (tag, keyEvent) => {
   if (yank) {
-    console.log('we yankin\'');
-      console.log('COPYING', tag.target);
     if (tag.target.tagName === 'A') {
-      console.log('COPYING', tag.target.href);
       navigator.clipboard.writeText(tag.target.href);
     }
   } else {
-    if(isInputElement(tag.target)) {
-      tag.target.focus();
-      tag.target.value = tag.target.value;
-    }
-
     const modifiers = {
       shiftKey: keyEvent.shiftKey,
       ctrlKey: keyEvent.ctrlKey,
@@ -414,8 +463,22 @@ const select = (tag, keyEvent) => {
       ... modifiers,
     });
 
-    ['mouseover', 'mousedown', 'mouseup', 'click'].forEach((type) =>
-      tag.target.dispatchEvent(Event(type)));
+    //necessary to let this process finish before the events are fired
+    //dispatchEvent circuments the eventloop, it is blocking, and only returns
+    //once the dispatched event has been handled.
+    //For us, this means events will be processed _before_ we return to the state-machine.
+    //This causes problems e.g. if the target is an input field, as selecting
+    //it causes a focus event to fire, which will be handled as input to the
+    //ACTIVE state, since we haven't returned from here yet, and therefore haven't returned to the INACTIVE state.
+    //This means the focus event is given to filter as input, causing an exception.
+    queueOnEventLoop(() => {
+      // for some elements (iframes), dispacthing the click events doesn't do
+      // the trick, but focusing does.
+      // this is also necessary to activate (some?) input fields
+      tag.target.focus();
+      ['mouseenter', 'mouseover', 'mousedown', 'mouseup', 'click'].forEach((type) =>
+        tag.target.dispatchEvent(Event(type)));
+    });
   }
   clear();
 }
@@ -454,4 +517,6 @@ const filter = (keyEvent) => {
   });
 }
 
-window.addEventListener("keydown", keypressHandler, { capture: true });
+window.addEventListener("keydown", eventHandler, { capture: true });
+window.addEventListener("focus", eventHandler, { capture: true });
+window.addEventListener("blur", eventHandler, { capture: true });
