@@ -325,8 +325,18 @@ const isContentEditable = (element) => {
   return ce || isContentEditable(par);
 }
 
-const inputTagNames = new Set(['INPUT', 'TEXTAREA']);
-const isInputElement = (element) => inputTagNames.has(element.tagName) || isContentEditable(element);
+const ignoredInputTypes = new Set(['checkbox', 'radio']);
+const isInputElement = (element) => {
+  const tag = element.tagName;
+
+  if (tag === "INPUT" && !ignoredInputTypes.has(element.type)){
+    return true;
+  } else if(tag === "TEXTAREA") {
+    return true;
+  }
+
+  return isContentEditable(element);
+}
 
 //states
 const YANK = "YANK";
