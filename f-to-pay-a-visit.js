@@ -76,16 +76,14 @@ const DFA = {
       return;
     }
 
-    console.log('following transition', transition);
-
     const { to, f } = transition;
     const stateOverride = f(input);
 
-    if(stateOverride !== undefined) {
-      console.log('using override', stateOverride);
-    }
+    const nextState = to ?? stateOverride;
 
-    DFA.setState(dfa, stateOverride ?? to);
+    console.log("transitioning from", dfa.state, "to", nextState, "via", transition, "caused by input", input);
+
+    dfa.state = stateOverride ?? to;
   },
 }
 
