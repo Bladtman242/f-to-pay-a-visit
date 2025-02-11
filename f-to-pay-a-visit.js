@@ -356,7 +356,7 @@ const activate = (i) => {
     return INACTIVE;
   } else {
     stop(i);
-    display();
+    return display();
   }
 };
 
@@ -448,19 +448,23 @@ const display = () => {
   let before = start;
   const targets = getTargetableElements();
   console.log(`found ${targets.length} targets in:`, new Date() - before);
-  before = new Date();
-  const namedTags = nameTags(targets);
-  console.log(`named tags in`, new Date() - before);
-  before = new Date();
-  const positionedTags = positionTags(namedTags);
-  console.log(`positioned tags in:`, new Date() - before);
-  before = new Date();
-  const tagElements = positionedTags.map(generateTagElement);
-  console.log(`created tag elements in:`, new Date() - before);
-  before = new Date();
-  displayTags(tagElements);
-  console.log(`added tag elements in:`, new Date() - before);
-  console.log(`in total:`, new Date() - start);
+  if(targets.length === 0) {
+    return INACTIVE;
+  } else {
+    before = new Date();
+    const namedTags = nameTags(targets);
+    console.log(`named tags in`, new Date() - before);
+    before = new Date();
+    const positionedTags = positionTags(namedTags);
+    console.log(`positioned tags in:`, new Date() - before);
+    before = new Date();
+    const tagElements = positionedTags.map(generateTagElement);
+    console.log(`created tag elements in:`, new Date() - before);
+    before = new Date();
+    displayTags(tagElements);
+    console.log(`added tag elements in:`, new Date() - before);
+    console.log(`in total:`, new Date() - start);
+  }
 }
 
 const clear = () => {
