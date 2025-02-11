@@ -65,7 +65,7 @@ const DFA = {
               ?? state.transitionTypes.get(DFA.ANY);
 
     if(undefined === type) {
-      // types means no transition for this input, do nothing
+      // no types means no transition for this input, do nothing
       return;
     }
 
